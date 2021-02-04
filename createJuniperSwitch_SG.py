@@ -5,7 +5,7 @@ from dcim.choices import DeviceStatusChoices, SiteStatusChoices
 from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site, Rack, Interface
 from ipam.models import Aggregate, IPAddress, Prefix, RIR, Role, RouteTarget, Service, VLAN, VLANGroup, VRF
 from extras.scripts import *
-
+from extras.models import CustomField
 from utilities.forms import (
     APISelect, APISelectMultiple, add_blank_choice, BootstrapMixin, BulkEditForm, BulkEditNullBooleanSelect,
     ColorSelect, CommentField, CSVChoiceField, CSVContentTypeField, CSVModelChoiceField, CSVModelForm,
@@ -19,11 +19,22 @@ class createSGJuniperSwitch(Script):
     class Meta:
         name = 'Create switch for SG sites'
         description = 'test01'
-        field_order = ['dev_name','dev_model','site']
+        field_order = ['site','rack','sw_name','sw_int_name','sw_int_ip']
 
+    SERVICESLIST = (
+        ('s2','SSHv2'),
+        ('s1','SSHv1'),
+        ('t','Telnet'),
+        ('y','YANG'),
+        ('r','REST'),
+    )
 
     dev_name = StringVar(
         description = 'Switch name'
+    )
+
+    dev_serial = StringVar(
+        description = 'Serial number'
     )
 
     dev_model = ObjectVar(
@@ -74,7 +85,28 @@ class createSGJuniperSwitch(Script):
 
     )
 
+    monitoring = BooleanVar(
+        description = 'Set to monitoring'
+    )
+
+    backup = BooleanVar(
+        description = 'Set to backup'
+    )
+
+    services = MultiChoiceVar(choices=SERVICESLIST)
+
+
     def run(self,data,commit):
+
+        services_list = [
+            {'id_s':'s2','port':22,'name':'SSHv2','protocol':'tcp'},
+            {'id_s':'s1','port':22,'name':'SSHv1','protocol':'tcp'},
+            {'id_s':'t','port':23,'name':'Telnet','protocol':'tcp'},
+            {'id_s':'y','port':443,'name':'YANG','protocol':'tcp'},
+            {'id_s':'r','port':443,'name':'REST','protocol':'tcp'},
+        ]
+
+
         dev_role = DeviceRole.objects.get(slug = 'access-switch')
         device_new = Device(
             name = data['dev_name'],
@@ -83,8 +115,27 @@ class createSGJuniperSwitch(Script):
             rack = data['rack'],
             position = data['position'],
             device_role = dev_role,
+            serial = data['dev_serial'],
         )
         device_new.save()
+
+        device_new.custom_field_data['fMonitoring'] = data['monitoring']
+        device_new.custom_field_data['fBackup'] = data['backup']
+        device_new.save()
+
+        output = []
+        for iServ in data['services']:
+            output.append(iServ)
+            print(output)
+            res = [row for row in services_list if row['id_s'] == iServ]
+            s1 = Service(
+                device = device_new,
+                name = res[0]['name'],
+                ports = [res[0]['port']],
+                protocol = res[0]['protocol'],
+            )
+            s1.save()
+
 
         dev_mgmt_int = Interface(
             device = device_new,
@@ -106,4 +157,4 @@ class createSGJuniperSwitch(Script):
         device_new.save()
 
         self.log_success(f"Created new Juniper device: {device_new}")
-        
+        return ''.join(output)
